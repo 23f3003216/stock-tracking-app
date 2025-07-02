@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,30 +9,57 @@ import {
   TextInput,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-
-const mockTopGainers = [
-  { symbol: 'AAPL', price: '180.12', change: '1.5' },
-  { symbol: 'MSFT', price: '315.24', change: '2.1' },
-  { symbol: 'GOOGL', price: '132.80', change: '3.2' },
-  { symbol: 'TSLA', price: '285.40', change: '2.5' },
-];
-
-const mockTopLosers = [
-  { symbol: 'NFLX', price: '405.20', change: '-1.8' },
-  { symbol: 'META', price: '312.00', change: '-2.3' },
-  { symbol: 'AMZN', price: '135.12', change: '-0.9' },
-  { symbol: 'NVDA', price: '455.90', change: '-3.0' },
-];
+import {
+  fetchTopGainers,
+  fetchTopLosers,
+  searchStockSymbol,
+  fetchStockData,
+} from '../src/api/alphaVantage';
 
 const ExploreScreen = () => {
   const navigation = useNavigation();
-  const [query, setQuery] = useState('');
+  const [gainers, setGainers] = useState([]);
+  const [losers, setLosers] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [loading, setLoading] = useState(false);
 
-  const allStocks = [...mockTopGainers, ...mockTopLosers];
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true);
+      const g = await fetchTopGainers();
+      const l = await fetchTopLosers();
+      setGainers(g);
+      setLosers(l);
+      setLoading(false);
+    };
+    loadData();
+  }, []);
 
-  const filteredStocks = allStocks.filter((stock) =>
-    stock.symbol.toLowerCase().includes(query.toLowerCase())
-  );
+  useEffect(() => {
+    const fetchSearch = async () => {
+      if (searchQuery.trim() === '') {
+        setSearchResults([]);
+        return;
+      }
+      setLoading(true);
+      const results = await searchStockSymbol(searchQuery);
+
+      // Fetch price and change for each symbol
+      const enriched = await Promise.all(
+        results.map(async (item) => {
+          const full = await fetchStockData(item.symbol);
+          return full || item;
+        })
+      );
+
+      setSearchResults(enriched);
+      setLoading(false);
+    };
+
+    const delay = setTimeout(fetchSearch, 500);
+    return () => clearTimeout(delay);
+  }, [searchQuery]);
 
   const renderCard = ({ item }) => (
     <TouchableOpacity
@@ -41,12 +68,7 @@ const ExploreScreen = () => {
     >
       <Text style={styles.symbol}>{item.symbol}</Text>
       <Text style={styles.price}>${item.price}</Text>
-      <Text
-        style={[
-          styles.change,
-          { color: parseFloat(item.change) >= 0 ? 'green' : 'red' },
-        ]}
-      >
+      <Text style={[styles.change, { color: parseFloat(item.change) >= 0 ? 'green' : 'red' }]}>
         {item.change}%
       </Text>
     </TouchableOpacity>
@@ -54,24 +76,25 @@ const ExploreScreen = () => {
 
   return (
     <View style={styles.container}>
-      {/* Search Bar */}
       <TextInput
         placeholder="Search Stock Symbol (e.g., AAPL)"
         style={styles.searchInput}
-        value={query}
-        onChangeText={setQuery}
+        value={searchQuery}
+        onChangeText={setSearchQuery}
       />
 
-      {query.length > 0 ? (
-        filteredStocks.length === 0 ? (
+      {loading ? (
+        <ActivityIndicator size="large" style={{ marginTop: 20 }} />
+      ) : searchQuery.length > 0 ? (
+        searchResults.length === 0 ? (
           <Text style={{ marginVertical: 16, color: 'red' }}>
-            No stocks found for "{query}"
+            No stocks found for "{searchQuery}"
           </Text>
         ) : (
           <>
             <Text style={styles.header}>Search Results</Text>
             <FlatList
-              data={filteredStocks}
+              data={searchResults}
               keyExtractor={(item) => item.symbol}
               renderItem={renderCard}
               numColumns={2}
@@ -84,7 +107,7 @@ const ExploreScreen = () => {
         <>
           <Text style={styles.header}>Top Gainers</Text>
           <FlatList
-            data={mockTopGainers}
+            data={gainers}
             keyExtractor={(item) => item.symbol}
             renderItem={renderCard}
             numColumns={2}
@@ -95,12 +118,12 @@ const ExploreScreen = () => {
             style={styles.viewAllBtn}
             onPress={() => navigation.navigate('ViewAll', { section: 'gainers' })}
           >
-            <Text style={styles.viewAllText}>View All Gainers</Text>
+            <Text style={styles.viewAllText}>View All Gainers →</Text>
           </TouchableOpacity>
 
           <Text style={styles.header}>Top Losers</Text>
           <FlatList
-            data={mockTopLosers}
+            data={losers}
             keyExtractor={(item) => item.symbol}
             renderItem={renderCard}
             numColumns={2}
@@ -111,7 +134,7 @@ const ExploreScreen = () => {
             style={styles.viewAllBtn}
             onPress={() => navigation.navigate('ViewAll', { section: 'losers' })}
           >
-            <Text style={styles.viewAllText}>View All Losers</Text>
+            <Text style={styles.viewAllText}>View All Losers →</Text>
           </TouchableOpacity>
         </>
       )}
@@ -160,16 +183,18 @@ const styles = StyleSheet.create({
   change: {
     fontSize: 14,
   },
-  viewAllBtn: {
-    alignSelf: 'flex-end',
-    marginBottom: 16,
-  },
-  viewAllText: {
-    color: '#00d09c',
-    fontWeight: '600',
-  },
   listContent: {
     paddingBottom: 12,
+  },
+  viewAllBtn: {
+    alignSelf: 'flex-end',
+    marginTop: -6,
+    marginBottom: 18,
+  },
+  viewAllText: {
+    color: '#00b894',
+    fontWeight: 'bold',
+    fontSize: 14,
   },
 });
 

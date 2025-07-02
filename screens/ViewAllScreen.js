@@ -8,67 +8,75 @@ import {
   StyleSheet,
   Button,
 } from 'react-native';
-import { fetchStockData } from '../src/api/alphaVantage';
-import { useNavigation } from '@react-navigation/native';
+import { fetchTopGainers, fetchTopLosers } from '../src/api/alphaVantage';
+import { useNavigation, useRoute } from '@react-navigation/native';
 
 const PAGE_SIZE = 10;
 
-const mockSymbols = Array.from({ length: 50 }, (_, i) => `MOCK${i + 1}`); // 50 mock stock symbols
-
 const ViewAllScreen = () => {
-  const [stocks, setStocks] = useState([]);
+  const navigation = useNavigation();
+  const route = useRoute();
+  const section = route.params?.section || 'gainers'; // default to gainers
+
+  const [allStocks, setAllStocks] = useState([]);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
-  const navigation = useNavigation();
 
-  const loadStocks = async () => {
+  const paginatedData = allStocks.slice(0, page * PAGE_SIZE);
+
+  const loadData = async () => {
     setLoading(true);
-    const start = (page - 1) * PAGE_SIZE;
-    const end = start + PAGE_SIZE;
-    const currentSymbols = mockSymbols.slice(start, end);
-
-    const stockData = await Promise.all(currentSymbols.map(fetchStockData));
-    const valid = stockData.filter((item) => item !== null);
-
-    setStocks((prev) => [...prev, ...valid]);
+    const data =
+      section === 'gainers' ? await fetchTopGainers() : await fetchTopLosers();
+    setAllStocks(data);
     setLoading(false);
   };
 
   useEffect(() => {
-    loadStocks();
-  }, [page]);
+    loadData();
+  }, [section]);
 
-  const loadMore = () => setPage((prev) => prev + 1);
+  const loadMore = () => {
+    if (page * PAGE_SIZE < allStocks.length) {
+      setPage((prev) => prev + 1);
+    }
+  };
+
+  const renderItem = ({ item }) => (
+    <TouchableOpacity
+      style={styles.card}
+      onPress={() => navigation.navigate('ProductScreen', { symbol: item.symbol })}
+    >
+      <Text style={styles.symbol}>{item.symbol}</Text>
+      <Text style={styles.price}>${item.price}</Text>
+      <Text
+        style={[styles.change, { color: parseFloat(item.change) >= 0 ? 'green' : 'red' }]}
+      >
+        {item.change}%
+      </Text>
+    </TouchableOpacity>
+  );
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>All Top Gainers</Text>
+      <Text style={styles.header}>Top {section === 'gainers' ? 'Gainers' : 'Losers'}</Text>
 
-      <FlatList
-        data={stocks}
-        keyExtractor={(item) => item.symbol}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.card}
-            onPress={() => navigation.navigate('ProductScreen', { symbol: item.symbol })}
-          >
-            <Text style={styles.symbol}>{item.symbol}</Text>
-            <Text style={styles.price}>${item.price}</Text>
-            <Text style={[styles.change, { color: parseFloat(item.change) >= 0 ? 'green' : 'red' }]}>
-              {item.change}%
-            </Text>
-          </TouchableOpacity>
-        )}
-        ListFooterComponent={
-          loading ? (
-            <ActivityIndicator style={{ margin: 16 }} />
-          ) : stocks.length < mockSymbols.length ? (
-            <Button title="Load More" onPress={loadMore} />
-          ) : (
-            <Text style={{ textAlign: 'center', margin: 16 }}>End of List</Text>
-          )
-        }
-      />
+      {loading ? (
+        <ActivityIndicator size="large" style={{ marginTop: 20 }} />
+      ) : (
+        <FlatList
+          data={paginatedData}
+          keyExtractor={(item) => item.symbol}
+          renderItem={renderItem}
+          ListFooterComponent={
+            page * PAGE_SIZE < allStocks.length ? (
+              <Button title="Load More" onPress={loadMore} />
+            ) : (
+              <Text style={{ textAlign: 'center', margin: 16 }}>End of List</Text>
+            )
+          }
+        />
+      )}
     </View>
   );
 };
